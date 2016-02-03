@@ -34,8 +34,8 @@ func Provider() terraform.ResourceProvider {
 		},
 
 		ResourcesMap: map[string]*schema.Resource{
-			"google_bigquery_dataset":               resourceBigQueryDataset(),
-			"google_bigquery_table":                 resourceBigQueryTable(),
+			"googlebigquery_dataset":               resourceBigQueryDataset(),
+			"googlebigquery_table":                 resourceBigQueryTable(),
 		},
 
 		ConfigureFunc: providerConfigure,
