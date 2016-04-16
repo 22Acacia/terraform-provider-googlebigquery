@@ -19,26 +19,67 @@ func TestAccBigqueryDatasetCreate(t *testing.T) {
 				Config: testAccBigQueryDataset,
 				Check: resource.ComposeTestCheckFunc(
 					testAccBigQueryDatasetExists(
-						"google_bigquery_dataset.foobar"),
+						"googlebigquery_dataset.foobar"),
 				),
 			},
 		},
 	})
 }
 
+func TestAccBigqueryDatasetSoftDelete(t *testing.T) {
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckBigQueryDatasetExistsThenDestroy,
+		Steps: []resource.TestStep{
+			resource.TestStep{
+				Config: testAccBigQueryDatasetSD,
+				Check: resource.ComposeTestCheckFunc(
+					testAccBigQueryDatasetExists(
+						"googlebigquery_dataset.foobar_sd"),
+				),
+			},
+		},
+	})
+}
+
+
 func testAccCheckBigQueryDatasetDestroy(s *terraform.State) error {
 	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "google_bigquery_dataset" {
+		if rs.Type != "googlebigquery_dataset" {
 			continue
 		}
 
 		config := testAccProvider.Meta().(*Config)
-		_, err := config.clientBigQuery.Datasets.Get(config.Project, rs.Primary.Attributes["datasetId"]).Do()
-		if err != nil {
-			fmt.Errorf("Dataset still present")
+		ds, _ := config.clientBigQuery.Datasets.Get(config.Project, rs.Primary.Attributes["datasetId"]).Do()
+		if ds != nil {
+			return fmt.Errorf("Dataset still present")
 		}
+		
+		fmt.Printf("ds: %q", ds)
 	}
 
+	return nil
+}
+
+func testAccCheckBigQueryDatasetExistsThenDestroy(s *terraform.State) error {
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "googlebigquery_dataset" {
+			continue
+		}
+
+		config := testAccProvider.Meta().(*Config)
+		ds, _ := config.clientBigQuery.Datasets.Get(config.Project, rs.Primary.Attributes["datasetId"]).Do()		
+		if ds == nil {
+			return fmt.Errorf("Dataset was deleted when it shouldn't have been!")
+		}
+
+		err := config.clientBigQuery.Datasets.Delete(config.Project, rs.Primary.Attributes["datasetId"]).Do()		
+		if err != nil {
+			return fmt.Errorf("Failed to hard delete soft delete target after check.")
+		}
+	}
 	return nil
 }
 
@@ -55,7 +96,7 @@ func testAccBigQueryDatasetExists(n string) resource.TestCheckFunc {
 		config := testAccProvider.Meta().(*Config)
 		_, err := config.clientBigQuery.Datasets.Get(config.Project, rs.Primary.Attributes["datasetId"]).Do()
 		if err != nil {
-			fmt.Errorf("BigQuery Dataset not present")
+			return fmt.Errorf("BigQuery Dataset not present")
 		}
 
 		return nil
@@ -63,7 +104,14 @@ func testAccBigQueryDatasetExists(n string) resource.TestCheckFunc {
 }
 
 const testAccBigQueryDataset = `
-resource "google_bigquery_dataset" "foobar" {
+resource "googlebigquery_dataset" "foobar" {
 	datasetId = "foobar"
 	friendlyName = "hi"
+}`
+
+const testAccBigQueryDatasetSD = `
+resource "googlebigquery_dataset" "foobar_sd" {
+	datasetId = "foobar"
+	friendlyName = "hi"
+	softDelete = true
 }`

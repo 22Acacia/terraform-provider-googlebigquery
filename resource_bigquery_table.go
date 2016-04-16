@@ -47,6 +47,12 @@ func resourceBigQueryTable() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
+			
+			"softDelete": &schema.Schema{
+				Type:	  schema.TypeBool,
+				Optional: true,
+				Default:  false,
+			},
 
 			"schema": &schema.Schema{
 				Type:     schema.TypeList,
@@ -235,10 +241,12 @@ func resourceBigQueryTableUpdate(d *schema.ResourceData, meta interface{}) error
 func resourceBigQueryTableDelete(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	call := config.clientBigQuery.Tables.Delete(config.Project, d.Get("datasetId").(string), d.Get("tableId").(string))
-	err := call.Do()
-	if err != nil {
-		return err
+    if( false == d.Get("softDelete").(bool) ) {
+		call := config.clientBigQuery.Tables.Delete(config.Project, d.Get("datasetId").(string), d.Get("tableId").(string))
+		err := call.Do()
+		if err != nil {
+			return err
+		}
 	}
 
 	d.SetId("")

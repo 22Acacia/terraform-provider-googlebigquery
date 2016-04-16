@@ -19,7 +19,7 @@ func TestAccBigqueryTableCreate(t *testing.T) {
 				Config: testAccBigQueryTable,
 				Check: resource.ComposeTestCheckFunc(
 					testAccBigQueryTableExists(
-						"google_bigquery_table.foobar"),
+						"googlebigquery_table.foobar"),
 				),
 			},
 		},
@@ -37,7 +37,7 @@ func TestAccBigqueryTableCreateFieldsFile(t *testing.T) {
 				Config: testAccBigQueryTableJsonFile,
 				Check: resource.ComposeTestCheckFunc(
 					testAccBigQueryTableExists(
-						"google_bigquery_table.foobar"),
+						"googlebigquery_table.foobar"),
 				),
 			},
 		},
@@ -46,14 +46,14 @@ func TestAccBigqueryTableCreateFieldsFile(t *testing.T) {
 
 func testAccCheckBigQueryTableDestroy(s *terraform.State) error {
 	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "google_bigquery_table" {
+		if rs.Type != "googlebigquery_table" {
 			continue
 		}
 
 		config := testAccProvider.Meta().(*Config)
 		_, err := config.clientBigQuery.Tables.Get(config.Project, rs.Primary.Attributes["datasetId"], rs.Primary.Attributes["name"]).Do()
-		if err != nil {
-			fmt.Errorf("Table still present")
+		if err == nil {
+			return fmt.Errorf("Table still present")
 		}
 	}
 
@@ -73,7 +73,7 @@ func testAccBigQueryTableExists(n string) resource.TestCheckFunc {
 		config := testAccProvider.Meta().(*Config)
 		_, err := config.clientBigQuery.Tables.Get(config.Project, rs.Primary.Attributes["datasetId"], rs.Primary.Attributes["name"]).Do()
 		if err != nil {
-			fmt.Errorf("BigQuery Table not present")
+			return fmt.Errorf("BigQuery Table not present")
 		}
 
 		return nil
@@ -81,13 +81,13 @@ func testAccBigQueryTableExists(n string) resource.TestCheckFunc {
 }
 
 const testAccBigQueryTable = `
-resource "google_bigquery_dataset" "foobar" {
+resource "googlebigquery_dataset" "foobar" {
 	datasetId = "foobar"
 }
 
-resource "google_bigquery_table" "foobar" {
+resource "googlebigquery_table" "foobar" {
 	tableId = "foobar"
-	datasetId = "${google_bigquery_dataset.foobar.datasetId}"
+	datasetId = "${googlebigquery_dataset.foobar.datasetId}"
 	
 	schema {
 		description = "field"
@@ -103,13 +103,13 @@ resource "google_bigquery_table" "foobar" {
 }`
 
 const testAccBigQueryTableJsonFile = `
-resource "google_bigquery_dataset" "foobar" {
+resource "googlebigquery_dataset" "foobar" {
 	datasetId = "foobar"
 }
 
-resource "google_bigquery_table" "foobar" {
+resource "googlebigquery_table" "foobar" {
 	tableId = "foobar"
-	datasetId = "${google_bigquery_dataset.foobar.datasetId}"
+	datasetId = "${googlebigquery_dataset.foobar.datasetId}"
 
 	schemaFile = "./test-fixtures/fake_bigquery_table.json"
 }`
