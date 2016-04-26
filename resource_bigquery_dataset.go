@@ -44,7 +44,7 @@ func resourceBigQueryDataset() *schema.Resource {
 			"softDelete": &schema.Schema{
 				Type:	  schema.TypeBool,
 				Optional: true,
-				Default:  false,
+				Default:  true,
 			},
 
 			"access": &schema.Schema{
