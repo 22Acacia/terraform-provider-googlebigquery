@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/terraform/communicator/remote"
@@ -148,10 +149,20 @@ func (c *Communicator) Start(rc *remote.Cmd) error {
 func runCommand(shell *winrm.Shell, cmd *winrm.Command, rc *remote.Cmd) {
 	defer shell.Close()
 
-	go io.Copy(rc.Stdout, cmd.Stdout)
-	go io.Copy(rc.Stderr, cmd.Stderr)
+	var wg sync.WaitGroup
+	go func() {
+		wg.Add(1)
+		io.Copy(rc.Stdout, cmd.Stdout)
+		wg.Done()
+	}()
+	go func() {
+		wg.Add(1)
+		io.Copy(rc.Stderr, cmd.Stderr)
+		wg.Done()
+	}()
 
 	cmd.Wait()
+	wg.Wait()
 	rc.SetExited(cmd.ExitCode())
 }
 
@@ -182,12 +193,21 @@ func (c *Communicator) UploadDir(dst string, src string) error {
 
 func (c *Communicator) newCopyClient() (*winrmcp.Winrmcp, error) {
 	addr := fmt.Sprintf("%s:%d", c.endpoint.Host, c.endpoint.Port)
-	return winrmcp.New(addr, &winrmcp.Config{
+
+	config := winrmcp.Config{
 		Auth: winrmcp.Auth{
 			User:     c.connInfo.User,
 			Password: c.connInfo.Password,
 		},
+		Https:                 c.connInfo.HTTPS,
+		Insecure:              c.connInfo.Insecure,
 		OperationTimeout:      c.Timeout(),
 		MaxOperationsPerShell: 15, // lowest common denominator
-	})
+	}
+
+	if c.connInfo.CACert != nil {
+		config.CACertBytes = *c.connInfo.CACert
+	}
+
+	return winrmcp.New(addr, &config)
 }

@@ -25,33 +25,31 @@ For more information on Amazon Aurora, see [Aurora on Amazon RDS][2] in the Amaz
 
 ```
 resource "aws_rds_cluster_instance" "cluster_instances" {
-  count = 2
-  identifier = "aurora-cluster-demo"
+  count              = 2
+  identifier         = "aurora-cluster-demo-${count.index}"
   cluster_identifier = "${aws_rds_cluster.default.id}"
-  instance_class = "db.r3.large"
+  instance_class     = "db.r3.large"
 }
 
 resource "aws_rds_cluster" "default" {
   cluster_identifier = "aurora-cluster-demo"
   availability_zones = ["us-west-2a","us-west-2b","us-west-2c"]
-  database_name = "mydb"
-  master_username = "foo"
-  master_password = "bar"
+  database_name      = "mydb"
+  master_username    = "foo"
+  master_password    = "barbut8chars"
 }
 ```
 
 ## Argument Reference
 
 For more detailed documentation about each argument, refer to
-the [AWS official documentation](http://docs.aws.amazon.com/AmazonRDS/latest/CommandLineReference/CLIReference-cmd-ModifyDBInstance.html).
+the [AWS official documentation](https://docs.aws.amazon.com/AmazonRDS/latest/CommandLineReference/CLIReference-cmd-ModifyDBInstance.html).
 
 The following arguments are supported:
 
 * `identifier` - (Optional) The Instance Identifier. Must be a lower case
 string. If omitted, a unique identifier will be generated.
-* `cluster_identifier` - (Required) The Cluster Identifier for this Instance to
-join. Must be a lower case
-string.
+* `cluster_identifier` - (Required) The identifier of the [`aws_rds_cluster`](/docs/providers/aws/r/rds_cluster.html) in which to launch this instance.
 * `instance_class` - (Required) The instance class to use. For details on CPU
 and memory, see [Scaling Aurora DB Instances][4]. Aurora currently
   supports the below instance classes.
@@ -63,10 +61,7 @@ and memory, see [Scaling Aurora DB Instances][4]. Aurora currently
 * `publicly_accessible` - (Optional) Bool to control if instance is publicly accessible.
 Default `false`. See the documentation on [Creating DB Instances][6] for more
 details on controlling this property.
-
-* `db_subnet_group_name` - (Optional) A DB subnet group to associate with this DB instance.
-
-~> **NOTE:** `db_subnet_group_name` is a required field when you are trying to create a private instance (`publicly_accessible` = false)
+* `db_subnet_group_name` - (Required if `publicly_accessible = false`, Optional otherwise) A DB subnet group to associate with this DB instance. **NOTE:** This must match the `db_subnet_group_name` of the attached [`aws_rds_cluster`](/docs/providers/aws/r/rds_cluster.html).
 
 ## Attributes Reference
 
@@ -86,8 +81,8 @@ this instance is a read replica
 * `port` - The database port
 * `status` - The RDS instance status
 
-[2]: http://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_Aurora.html
+[2]: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_Aurora.html
 [3]: /docs/providers/aws/r/rds_cluster.html
-[4]: http://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Aurora.Managing.html
+[4]: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Aurora.Managing.html
 [5]: /docs/configuration/resources.html#count
-[6]: http://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_CreateDBInstance.html
+[6]: https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_CreateDBInstance.html

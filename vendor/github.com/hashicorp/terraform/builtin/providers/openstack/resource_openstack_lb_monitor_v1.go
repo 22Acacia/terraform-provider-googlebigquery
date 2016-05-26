@@ -25,7 +25,7 @@ func resourceLBMonitorV1() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				ForceNew:    true,
-				DefaultFunc: envDefaultFuncAllowMissing("OS_REGION_NAME"),
+				DefaultFunc: schema.EnvDefaultFunc("OS_REGION_NAME", ""),
 			},
 			"tenant_id": &schema.Schema{
 				Type:     schema.TypeString,
@@ -115,8 +115,8 @@ func resourceLBMonitorV1Create(d *schema.ResourceData, meta interface{}) error {
 	log.Printf("[DEBUG] Waiting for OpenStack LB Monitor (%s) to become available.", m.ID)
 
 	stateConf := &resource.StateChangeConf{
-		Pending:    []string{"PENDING"},
-		Target:     "ACTIVE",
+		Pending:    []string{"PENDING_CREATE"},
+		Target:     []string{"ACTIVE"},
 		Refresh:    waitForLBMonitorActive(networkingClient, m.ID),
 		Timeout:    2 * time.Minute,
 		Delay:      5 * time.Second,
@@ -205,8 +205,8 @@ func resourceLBMonitorV1Delete(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	stateConf := &resource.StateChangeConf{
-		Pending:    []string{"ACTIVE", "PENDING"},
-		Target:     "DELETED",
+		Pending:    []string{"ACTIVE", "PENDING_DELETE"},
+		Target:     []string{"DELETED"},
 		Refresh:    waitForLBMonitorDelete(networkingClient, d.Id()),
 		Timeout:    2 * time.Minute,
 		Delay:      5 * time.Second,

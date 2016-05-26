@@ -51,10 +51,19 @@ func resourceDockerContainerCreate(d *schema.ResourceData, meta interface{}) err
 
 	if v, ok := d.GetOk("command"); ok {
 		createOpts.Config.Cmd = stringListToStringSlice(v.([]interface{}))
+		for _, v := range createOpts.Config.Cmd {
+			if v == "" {
+				return fmt.Errorf("values for command may not be empty")
+			}
+		}
 	}
 
 	if v, ok := d.GetOk("entrypoint"); ok {
 		createOpts.Config.Entrypoint = stringListToStringSlice(v.([]interface{}))
+	}
+
+	if v, ok := d.GetOk("user"); ok {
+		createOpts.Config.User = v.(string)
 	}
 
 	exposedPorts := map[dc.Port]struct{}{}
@@ -65,6 +74,11 @@ func resourceDockerContainerCreate(d *schema.ResourceData, meta interface{}) err
 	}
 	if len(exposedPorts) != 0 {
 		createOpts.Config.ExposedPorts = exposedPorts
+	}
+
+	extraHosts := []string{}
+	if v, ok := d.GetOk("host"); ok {
+		extraHosts = extraHostsSetToDockerExtraHosts(v.(*schema.Set))
 	}
 
 	volumes := map[string]struct{}{}
@@ -100,7 +114,9 @@ func resourceDockerContainerCreate(d *schema.ResourceData, meta interface{}) err
 	if len(portBindings) != 0 {
 		hostConfig.PortBindings = portBindings
 	}
-
+	if len(extraHosts) != 0 {
+		hostConfig.ExtraHosts = extraHosts
+	}
 	if len(binds) != 0 {
 		hostConfig.Binds = binds
 	}
@@ -152,8 +168,19 @@ func resourceDockerContainerCreate(d *schema.ResourceData, meta interface{}) err
 
 	d.SetId(retContainer.ID)
 
+	if v, ok := d.GetOk("networks"); ok {
+		connectionOpts := dc.NetworkConnectionOptions{Container: retContainer.ID}
+
+		for _, rawNetwork := range v.(*schema.Set).List() {
+			network := rawNetwork.(string)
+			if err := client.ConnectNetwork(network, connectionOpts); err != nil {
+				return fmt.Errorf("Unable to connect to network '%s': %s", network, err)
+			}
+		}
+	}
+
 	creationTime = time.Now()
-	if err := client.StartContainer(retContainer.ID, hostConfig); err != nil {
+	if err := client.StartContainer(retContainer.ID, nil); err != nil {
 		return fmt.Errorf("Unable to start container: %s", err)
 	}
 
@@ -247,6 +274,10 @@ func resourceDockerContainerDelete(d *schema.ResourceData, meta interface{}) err
 func stringListToStringSlice(stringList []interface{}) []string {
 	ret := []string{}
 	for _, v := range stringList {
+		if v == nil {
+			ret = append(ret, "")
+			continue
+		}
 		ret = append(ret, v.(string))
 	}
 	return ret
@@ -316,6 +347,19 @@ func portSetToDockerPorts(ports *schema.Set) (map[dc.Port]struct{}, map[dc.Port]
 	return retExposedPorts, retPortBindings
 }
 
+func extraHostsSetToDockerExtraHosts(extraHosts *schema.Set) []string {
+	retExtraHosts := []string{}
+
+	for _, hostInt := range extraHosts.List() {
+		host := hostInt.(map[string]interface{})
+		ip := host["ip"].(string)
+		hostname := host["host"].(string)
+		retExtraHosts = append(retExtraHosts, hostname+":"+ip)
+	}
+
+	return retExtraHosts
+}
+
 func volumeSetToDockerVolumes(volumes *schema.Set) (map[string]struct{}, []string, []string, error) {
 	retVolumeMap := map[string]struct{}{}
 	retHostConfigBinds := []string{}
@@ -325,7 +369,10 @@ func volumeSetToDockerVolumes(volumes *schema.Set) (map[string]struct{}, []strin
 		volume := volumeInt.(map[string]interface{})
 		fromContainer := volume["from_container"].(string)
 		containerPath := volume["container_path"].(string)
-		hostPath := volume["host_path"].(string)
+		volumeName := volume["volume_name"].(string)
+		if len(volumeName) == 0 {
+			volumeName = volume["host_path"].(string)
+		}
 		readOnly := volume["read_only"].(bool)
 
 		switch {
@@ -335,13 +382,13 @@ func volumeSetToDockerVolumes(volumes *schema.Set) (map[string]struct{}, []strin
 			return retVolumeMap, retHostConfigBinds, retVolumeFromContainers, errors.New("Both a container and a path specified in a volume entry")
 		case len(fromContainer) != 0:
 			retVolumeFromContainers = append(retVolumeFromContainers, fromContainer)
-		case len(hostPath) != 0:
+		case len(volumeName) != 0:
 			readWrite := "rw"
 			if readOnly {
 				readWrite = "ro"
 			}
 			retVolumeMap[containerPath] = struct{}{}
-			retHostConfigBinds = append(retHostConfigBinds, hostPath+":"+containerPath+":"+readWrite)
+			retHostConfigBinds = append(retHostConfigBinds, volumeName+":"+containerPath+":"+readWrite)
 		default:
 			retVolumeMap[containerPath] = struct{}{}
 		}

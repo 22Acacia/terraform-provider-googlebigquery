@@ -77,7 +77,7 @@ func resourceAwsNatGatewayCreate(d *schema.ResourceData, meta interface{}) error
 	log.Printf("[DEBUG] Waiting for NAT Gateway (%s) to become available", d.Id())
 	stateConf := &resource.StateChangeConf{
 		Pending: []string{"pending"},
-		Target:  "available",
+		Target:  []string{"available"},
 		Refresh: NGStateRefreshFunc(conn, d.Id()),
 		Timeout: 10 * time.Minute,
 	}
@@ -106,7 +106,11 @@ func resourceAwsNatGatewayRead(d *schema.ResourceData, meta interface{}) error {
 
 	// Set NAT Gateway attributes
 	ng := ngRaw.(*ec2.NatGateway)
+	d.Set("subnet_id", ng.SubnetId)
+
+	// Address
 	address := ng.NatGatewayAddresses[0]
+	d.Set("allocation_id", address.AllocationId)
 	d.Set("network_interface_id", address.NetworkInterfaceId)
 	d.Set("private_ip", address.PrivateIp)
 	d.Set("public_ip", address.PublicIp)
@@ -137,7 +141,7 @@ func resourceAwsNatGatewayDelete(d *schema.ResourceData, meta interface{}) error
 
 	stateConf := &resource.StateChangeConf{
 		Pending:    []string{"deleting"},
-		Target:     "deleted",
+		Target:     []string{"deleted"},
 		Refresh:    NGStateRefreshFunc(conn, d.Id()),
 		Timeout:    30 * time.Minute,
 		Delay:      10 * time.Second,

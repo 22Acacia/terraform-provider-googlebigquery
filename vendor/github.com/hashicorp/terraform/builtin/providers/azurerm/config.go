@@ -4,20 +4,26 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/azure-sdk-for-go/Godeps/_workspace/src/github.com/Azure/go-autorest/autorest/azure"
+	"github.com/Azure/azure-sdk-for-go/arm/cdn"
 	"github.com/Azure/azure-sdk-for-go/arm/compute"
 	"github.com/Azure/azure-sdk-for-go/arm/network"
-	"github.com/Azure/azure-sdk-for-go/arm/resources"
+	"github.com/Azure/azure-sdk-for-go/arm/resources/resources"
 	"github.com/Azure/azure-sdk-for-go/arm/scheduler"
 	"github.com/Azure/azure-sdk-for-go/arm/storage"
+	mainStorage "github.com/Azure/azure-sdk-for-go/storage"
 	"github.com/hashicorp/terraform/terraform"
+	riviera "github.com/jen20/riviera/azure"
 )
 
 // ArmClient contains the handles to all the specific Azure Resource Manager
 // resource classes' respective clients.
 type ArmClient struct {
+	rivieraClient *riviera.Client
+
 	availSetClient         compute.AvailabilitySetsClient
 	usageOpsClient         compute.UsageOperationsClient
 	vmExtensionImageClient compute.VirtualMachineExtensionImagesClient
@@ -37,6 +43,11 @@ type ArmClient struct {
 	vnetGatewayConnectionsClient network.VirtualNetworkGatewayConnectionsClient
 	vnetGatewayClient            network.VirtualNetworkGatewaysClient
 	vnetClient                   network.VirtualNetworksClient
+	routeTablesClient            network.RouteTablesClient
+	routesClient                 network.RoutesClient
+
+	cdnProfilesClient  cdn.ProfilesClient
+	cdnEndpointsClient cdn.EndpointsClient
 
 	providers           resources.ProvidersClient
 	resourceGroupClient resources.GroupsClient
@@ -47,14 +58,36 @@ type ArmClient struct {
 
 	storageServiceClient storage.AccountsClient
 	storageUsageClient   storage.UsageOperationsClient
+
+	deploymentsClient resources.DeploymentsClient
 }
 
 func withRequestLogging() autorest.SendDecorator {
 	return func(s autorest.Sender) autorest.Sender {
 		return autorest.SenderFunc(func(r *http.Request) (*http.Response, error) {
-			log.Printf("[DEBUG] Sending Azure RM Request %s to %s\n", r.Method, r.URL)
+			log.Printf("[DEBUG] Sending Azure RM Request %q to %q\n", r.Method, r.URL)
 			resp, err := s.Do(r)
-			log.Printf("[DEBUG] Received Azure RM Request status code %s for %s\n", resp.Status, r.URL)
+			if resp != nil {
+				log.Printf("[DEBUG] Received Azure RM Request status code %s for %s\n", resp.Status, r.URL)
+			} else {
+				log.Printf("[DEBUG] Request to %s completed with no response", r.URL)
+			}
+			return resp, err
+		})
+	}
+}
+
+func withPollWatcher() autorest.SendDecorator {
+	return func(s autorest.Sender) autorest.Sender {
+		return autorest.SenderFunc(func(r *http.Request) (*http.Response, error) {
+			fmt.Printf("[DEBUG] Sending Azure RM Request %q to %q\n", r.Method, r.URL)
+			resp, err := s.Do(r)
+			fmt.Printf("[DEBUG] Received Azure RM Request status code %s for %s\n", resp.Status, r.URL)
+			if autorest.ResponseRequiresPolling(resp) {
+				fmt.Printf("[DEBUG] Azure RM request will poll %s after %d seconds\n",
+					autorest.GetPollingLocation(resp),
+					int(autorest.GetPollingDelay(resp, time.Duration(0))/time.Second))
+			}
 			return resp, err
 		})
 	}
@@ -74,13 +107,33 @@ func setUserAgent(client *autorest.Client) {
 // getArmClient is a helper method which returns a fully instantiated
 // *ArmClient based on the Config's current settings.
 func (c *Config) getArmClient() (*ArmClient, error) {
+	// client declarations:
+	client := ArmClient{}
+
+	rivieraClient, err := riviera.NewClient(&riviera.AzureResourceManagerCredentials{
+		ClientID:       c.ClientID,
+		ClientSecret:   c.ClientSecret,
+		TenantID:       c.TenantID,
+		SubscriptionID: c.SubscriptionID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Error creating Riviera client: %s", err)
+	}
+
+	// validate that the credentials are correct using Riviera. Note that this must be
+	// done _before_ using the Microsoft SDK, because Riviera handles errors. Using a
+	// namespace registration instead of a simple OAuth token refresh guarantees that
+	// service delegation is correct. This has the effect of registering Microsoft.Compute
+	// which is neccessary anyway.
+	if err := registerProviderWithSubscription("Microsoft.Compute", rivieraClient); err != nil {
+		return nil, err
+	}
+	client.rivieraClient = rivieraClient
+
 	spt, err := azure.NewServicePrincipalToken(c.ClientID, c.ClientSecret, c.TenantID, azure.AzureResourceManagerScope)
 	if err != nil {
 		return nil, err
 	}
-
-	// client declarations:
-	client := ArmClient{}
 
 	// NOTE: these declarations should be left separate for clarity should the
 	// clients be wished to be configured with custom Responders/PollingModess etc...
@@ -186,6 +239,18 @@ func (c *Config) getArmClient() (*ArmClient, error) {
 	vnc.Sender = autorest.CreateSender(withRequestLogging())
 	client.vnetClient = vnc
 
+	rtc := network.NewRouteTablesClient(c.SubscriptionID)
+	setUserAgent(&rtc.Client)
+	rtc.Authorizer = spt
+	rtc.Sender = autorest.CreateSender(withRequestLogging())
+	client.routeTablesClient = rtc
+
+	rc := network.NewRoutesClient(c.SubscriptionID)
+	setUserAgent(&rc.Client)
+	rc.Authorizer = spt
+	rc.Sender = autorest.CreateSender(withRequestLogging())
+	client.routesClient = rc
+
 	rgc := resources.NewGroupsClient(c.SubscriptionID)
 	setUserAgent(&rgc.Client)
 	rgc.Authorizer = spt
@@ -219,7 +284,7 @@ func (c *Config) getArmClient() (*ArmClient, error) {
 	ssc := storage.NewAccountsClient(c.SubscriptionID)
 	setUserAgent(&ssc.Client)
 	ssc.Authorizer = spt
-	ssc.Sender = autorest.CreateSender(withRequestLogging())
+	ssc.Sender = autorest.CreateSender(withRequestLogging(), withPollWatcher())
 	client.storageServiceClient = ssc
 
 	suc := storage.NewUsageOperationsClient(c.SubscriptionID)
@@ -228,5 +293,65 @@ func (c *Config) getArmClient() (*ArmClient, error) {
 	suc.Sender = autorest.CreateSender(withRequestLogging())
 	client.storageUsageClient = suc
 
+	cpc := cdn.NewProfilesClient(c.SubscriptionID)
+	setUserAgent(&cpc.Client)
+	cpc.Authorizer = spt
+	cpc.Sender = autorest.CreateSender(withRequestLogging())
+	client.cdnProfilesClient = cpc
+
+	cec := cdn.NewEndpointsClient(c.SubscriptionID)
+	setUserAgent(&cec.Client)
+	cec.Authorizer = spt
+	cec.Sender = autorest.CreateSender(withRequestLogging())
+	client.cdnEndpointsClient = cec
+
+	dc := resources.NewDeploymentsClient(c.SubscriptionID)
+	setUserAgent(&dc.Client)
+	dc.Authorizer = spt
+	dc.Sender = autorest.CreateSender(withRequestLogging())
+	client.deploymentsClient = dc
+
 	return &client, nil
+}
+
+func (armClient *ArmClient) getKeyForStorageAccount(resourceGroupName, storageAccountName string) (string, error) {
+	keys, err := armClient.storageServiceClient.ListKeys(resourceGroupName, storageAccountName)
+	if err != nil {
+		return "", fmt.Errorf("Error retrieving keys for storage account %q: %s", storageAccountName, err)
+	}
+
+	if keys.Key1 == nil {
+		return "", fmt.Errorf("Nil key returned for storage account %q", storageAccountName)
+	}
+
+	return *keys.Key1, nil
+}
+
+func (armClient *ArmClient) getBlobStorageClientForStorageAccount(resourceGroupName, storageAccountName string) (*mainStorage.BlobStorageClient, error) {
+	key, err := armClient.getKeyForStorageAccount(resourceGroupName, storageAccountName)
+	if err != nil {
+		return nil, err
+	}
+
+	storageClient, err := mainStorage.NewBasicClient(storageAccountName, key)
+	if err != nil {
+		return nil, fmt.Errorf("Error creating storage client for storage account %q: %s", storageAccountName, err)
+	}
+
+	blobClient := storageClient.GetBlobService()
+	return &blobClient, nil
+}
+func (armClient *ArmClient) getQueueServiceClientForStorageAccount(resourceGroupName, storageAccountName string) (*mainStorage.QueueServiceClient, error) {
+	key, err := armClient.getKeyForStorageAccount(resourceGroupName, storageAccountName)
+	if err != nil {
+		return nil, err
+	}
+
+	storageClient, err := mainStorage.NewBasicClient(storageAccountName, key)
+	if err != nil {
+		return nil, fmt.Errorf("Error creating storage client for storage account %q: %s", storageAccountName, err)
+	}
+
+	queueClient := storageClient.GetQueueService()
+	return &queueClient, nil
 }

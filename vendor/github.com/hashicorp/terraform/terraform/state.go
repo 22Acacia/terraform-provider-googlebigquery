@@ -9,6 +9,7 @@ import (
 	"log"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform/config"
@@ -150,8 +151,23 @@ func (s *State) ModuleOrphans(path []string, c *config.Config) [][]string {
 			continue
 		}
 
+		orphanPath := m.Path[:len(path)+1]
+
+		// Don't double-add if we've already added this orphan (which can happen if
+		// there are multiple nested sub-modules that get orphaned together).
+		alreadyAdded := false
+		for _, o := range orphans {
+			if reflect.DeepEqual(o, orphanPath) {
+				alreadyAdded = true
+				break
+			}
+		}
+		if alreadyAdded {
+			continue
+		}
+
 		// Add this orphan
-		orphans = append(orphans, m.Path[:len(path)+1])
+		orphans = append(orphans, orphanPath)
 	}
 
 	return orphans
@@ -661,6 +677,65 @@ func (m *ModuleState) String() string {
 	return buf.String()
 }
 
+// ResourceStateKey is a structured representation of the key used for the
+// ModuleState.Resources mapping
+type ResourceStateKey struct {
+	Name  string
+	Type  string
+	Index int
+}
+
+// Equal determines whether two ResourceStateKeys are the same
+func (rsk *ResourceStateKey) Equal(other *ResourceStateKey) bool {
+	if rsk == nil || other == nil {
+		return false
+	}
+	if rsk.Type != other.Type {
+		return false
+	}
+	if rsk.Name != other.Name {
+		return false
+	}
+	if rsk.Index != other.Index {
+		return false
+	}
+	return true
+}
+
+func (rsk *ResourceStateKey) String() string {
+	if rsk == nil {
+		return ""
+	}
+	if rsk.Index == -1 {
+		return fmt.Sprintf("%s.%s", rsk.Type, rsk.Name)
+	}
+	return fmt.Sprintf("%s.%s.%d", rsk.Type, rsk.Name, rsk.Index)
+}
+
+// ParseResourceStateKey accepts a key in the format used by
+// ModuleState.Resources and returns a resource name and resource index. In the
+// state, a resource has the format "type.name.index" or "type.name". In the
+// latter case, the index is returned as -1.
+func ParseResourceStateKey(k string) (*ResourceStateKey, error) {
+	parts := strings.Split(k, ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return nil, fmt.Errorf("Malformed resource state key: %s", k)
+	}
+	rsk := &ResourceStateKey{
+		Type:  parts[0],
+		Name:  parts[1],
+		Index: -1,
+	}
+	if len(parts) == 3 {
+		index, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, fmt.Errorf("Malformed resource state key index: %s", k)
+		}
+		rsk.Index = index
+	}
+	return rsk, nil
+}
+
 // ResourceState holds the state of a resource that is used so that
 // a provider can find and manage an existing resource as well as for
 // storing attributes that are used to populate variables of child
@@ -795,6 +870,36 @@ func (r *ResourceState) Taint() {
 	// Shuffle to the end of the taint list and set primary to nil
 	r.Tainted = append(r.Tainted, r.Primary)
 	r.Primary = nil
+}
+
+// Untaint takes a tainted InstanceState and marks it as primary.
+// The index argument is used to select a single InstanceState from the
+// array of Tainted when there are more than one. If index is -1, the
+// first Tainted InstanceState will be untainted iff there is only one
+// Tainted InstanceState. Index must be >= 0 to specify an InstanceState
+// when Tainted has more than one member.
+func (r *ResourceState) Untaint(index int) error {
+	if len(r.Tainted) == 0 {
+		return fmt.Errorf("Nothing to untaint.")
+	}
+	if r.Primary != nil {
+		return fmt.Errorf("Resource has a primary instance in the state that would be overwritten by untainting. If you want to restore a tainted resource to primary, taint the existing primary instance first.")
+	}
+	if index == -1 && len(r.Tainted) > 1 {
+		return fmt.Errorf("There are %d tainted instances for this resource, please specify an index to select which one to untaint.", len(r.Tainted))
+	}
+	if index == -1 {
+		index = 0
+	}
+	if index >= len(r.Tainted) {
+		return fmt.Errorf("There are %d tainted instances for this resource, the index specified (%d) is out of range.", len(r.Tainted), index)
+	}
+
+	// Perform the untaint
+	r.Primary = r.Tainted[index]
+	r.Tainted = append(r.Tainted[:index], r.Tainted[index+1:]...)
+
+	return nil
 }
 
 func (r *ResourceState) init() {

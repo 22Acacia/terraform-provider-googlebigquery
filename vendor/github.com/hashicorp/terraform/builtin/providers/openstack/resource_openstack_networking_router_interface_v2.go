@@ -24,7 +24,7 @@ func resourceNetworkingRouterInterfaceV2() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				ForceNew:    true,
-				DefaultFunc: envDefaultFuncAllowMissing("OS_REGION_NAME"),
+				DefaultFunc: schema.EnvDefaultFunc("OS_REGION_NAME", ""),
 			},
 			"router_id": &schema.Schema{
 				Type:     schema.TypeString,
@@ -68,7 +68,7 @@ func resourceNetworkingRouterInterfaceV2Create(d *schema.ResourceData, meta inte
 
 	stateConf := &resource.StateChangeConf{
 		Pending:    []string{"BUILD", "PENDING_CREATE", "PENDING_UPDATE"},
-		Target:     "ACTIVE",
+		Target:     []string{"ACTIVE"},
 		Refresh:    waitForRouterInterfaceActive(networkingClient, n.PortID),
 		Timeout:    2 * time.Minute,
 		Delay:      5 * time.Second,
@@ -117,7 +117,7 @@ func resourceNetworkingRouterInterfaceV2Delete(d *schema.ResourceData, meta inte
 
 	stateConf := &resource.StateChangeConf{
 		Pending:    []string{"ACTIVE"},
-		Target:     "DELETED",
+		Target:     []string{"DELETED"},
 		Refresh:    waitForRouterInterfaceDelete(networkingClient, d),
 		Timeout:    2 * time.Minute,
 		Delay:      5 * time.Second,

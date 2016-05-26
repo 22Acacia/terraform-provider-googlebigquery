@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
 
@@ -20,7 +21,7 @@ import (
 
 func TestAccGoogleSqlDatabaseInstance_basic(t *testing.T) {
 	var instance sqladmin.DatabaseInstance
-	databaseID := genRandInt()
+	databaseID := acctest.RandInt()
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -41,9 +42,30 @@ func TestAccGoogleSqlDatabaseInstance_basic(t *testing.T) {
 	})
 }
 
+func TestAccGoogleSqlDatabaseInstance_basic2(t *testing.T) {
+	var instance sqladmin.DatabaseInstance
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccGoogleSqlDatabaseInstanceDestroy,
+		Steps: []resource.TestStep{
+			resource.TestStep{
+				Config: testGoogleSqlDatabaseInstance_basic2,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckGoogleSqlDatabaseInstanceExists(
+						"google_sql_database_instance.instance", &instance),
+					testAccCheckGoogleSqlDatabaseInstanceEquals(
+						"google_sql_database_instance.instance", &instance),
+				),
+			},
+		},
+	})
+}
+
 func TestAccGoogleSqlDatabaseInstance_settings_basic(t *testing.T) {
 	var instance sqladmin.DatabaseInstance
-	databaseID := genRandInt()
+	databaseID := acctest.RandInt()
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -66,7 +88,7 @@ func TestAccGoogleSqlDatabaseInstance_settings_basic(t *testing.T) {
 
 func TestAccGoogleSqlDatabaseInstance_settings_upgrade(t *testing.T) {
 	var instance sqladmin.DatabaseInstance
-	databaseID := genRandInt()
+	databaseID := acctest.RandInt()
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -99,7 +121,7 @@ func TestAccGoogleSqlDatabaseInstance_settings_upgrade(t *testing.T) {
 
 func TestAccGoogleSqlDatabaseInstance_settings_downgrade(t *testing.T) {
 	var instance sqladmin.DatabaseInstance
-	databaseID := genRandInt()
+	databaseID := acctest.RandInt()
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -332,6 +354,16 @@ func testAccGoogleSqlDatabaseInstanceDestroy(s *terraform.State) error {
 var testGoogleSqlDatabaseInstance_basic = `
 resource "google_sql_database_instance" "instance" {
 	name = "tf-lw-%d"
+	region = "us-central"
+	settings {
+		tier = "D0"
+		crash_safe_replication = false
+	}
+}
+`
+
+var testGoogleSqlDatabaseInstance_basic2 = `
+resource "google_sql_database_instance" "instance" {
 	region = "us-central"
 	settings {
 		tier = "D0"

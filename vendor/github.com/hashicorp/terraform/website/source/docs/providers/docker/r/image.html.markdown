@@ -28,11 +28,14 @@ resource "docker_image" "ubuntu" {
 
 The following arguments are supported:
 
-* `name` - (Required) The name of the Docker image, including any tags.
-* `keep_updated` - (Optional) If true, then the Docker image will always
-  be updated on the host to the latest. If this is false, as long as an
+* `name` - (Required, string) The name of the Docker image, including any tags.
+* `keep_updated` - (Optional, boolean) If true, then the Docker image will
+  always be updated on the host to the latest. If this is false, as long as an
   image is downloaded with the correct tag, it won't be redownloaded if
   there is a newer image.
+* `keep_locally` - (Optional, boolean) If true, then the Docker image won't be
+  deleted on destroy operation. If this is false, it will delete the image from
+  the docker local storage on destroy operation.
 
 ## Attributes Reference
 

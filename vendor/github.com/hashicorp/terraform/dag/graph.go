@@ -48,6 +48,16 @@ func (g *Graph) Edges() []Edge {
 	return result
 }
 
+// HasVertex checks if the given Vertex is present in the graph.
+func (g *Graph) HasVertex(v Vertex) bool {
+	return g.vertices.Include(v)
+}
+
+// HasEdge checks if the given Edge is present in the graph.
+func (g *Graph) HasEdge(e Edge) bool {
+	return g.edges.Include(e)
+}
+
 // Add adds a vertex to the graph. This is safe to call multiple time with
 // the same Vertex.
 func (g *Graph) Add(v Vertex) Vertex {
@@ -165,6 +175,47 @@ func (g *Graph) Connect(edge Edge) {
 		g.upEdges[targetCode] = s
 	}
 	s.Add(source)
+}
+
+// String outputs some human-friendly output for the graph structure.
+func (g *Graph) StringWithNodeTypes() string {
+	var buf bytes.Buffer
+
+	// Build the list of node names and a mapping so that we can more
+	// easily alphabetize the output to remain deterministic.
+	vertices := g.Vertices()
+	names := make([]string, 0, len(vertices))
+	mapping := make(map[string]Vertex, len(vertices))
+	for _, v := range vertices {
+		name := VertexName(v)
+		names = append(names, name)
+		mapping[name] = v
+	}
+	sort.Strings(names)
+
+	// Write each node in order...
+	for _, name := range names {
+		v := mapping[name]
+		targets := g.downEdges[hashcode(v)]
+
+		buf.WriteString(fmt.Sprintf("%s - %T\n", name, v))
+
+		// Alphabetize dependencies
+		deps := make([]string, 0, targets.Len())
+		targetNodes := make([]Vertex, 0, targets.Len())
+		for _, target := range targets.List() {
+			deps = append(deps, VertexName(target))
+			targetNodes = append(targetNodes, target)
+		}
+		sort.Strings(deps)
+
+		// Write dependencies
+		for i, d := range deps {
+			buf.WriteString(fmt.Sprintf("  %s - %T\n", d, targetNodes[i]))
+		}
+	}
+
+	return buf.String()
 }
 
 // String outputs some human-friendly output for the graph structure.

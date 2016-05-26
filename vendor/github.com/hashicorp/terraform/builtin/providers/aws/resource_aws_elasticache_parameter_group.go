@@ -71,7 +71,7 @@ func resourceAwsElasticacheParameterGroupCreate(d *schema.ResourceData, meta int
 	log.Printf("[DEBUG] Create Cache Parameter Group: %#v", createOpts)
 	_, err := conn.CreateCacheParameterGroup(&createOpts)
 	if err != nil {
-		return fmt.Errorf("Error creating DB Parameter Group: %s", err)
+		return fmt.Errorf("Error creating Cache Parameter Group: %s", err)
 	}
 
 	d.Partial(true)
@@ -169,7 +169,7 @@ func resourceAwsElasticacheParameterGroupUpdate(d *schema.ResourceData, meta int
 func resourceAwsElasticacheParameterGroupDelete(d *schema.ResourceData, meta interface{}) error {
 	stateConf := &resource.StateChangeConf{
 		Pending:    []string{"pending"},
-		Target:     "destroyed",
+		Target:     []string{"destroyed"},
 		Refresh:    resourceAwsElasticacheParameterGroupDeleteRefreshFunc(d, meta),
 		Timeout:    3 * time.Minute,
 		MinTimeout: 1 * time.Second,

@@ -3,6 +3,7 @@ package aws
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -68,7 +69,7 @@ func resourceAwsCustomerGatewayCreate(d *schema.ResourceData, meta interface{}) 
 	// Wait for the CustomerGateway to be available.
 	stateConf := &resource.StateChangeConf{
 		Pending:    []string{"pending"},
-		Target:     "available",
+		Target:     []string{"available"},
 		Refresh:    customerGatewayRefreshFunc(conn, *customerGateway.CustomerGatewayId),
 		Timeout:    10 * time.Minute,
 		Delay:      10 * time.Second,
@@ -145,10 +146,18 @@ func resourceAwsCustomerGatewayRead(d *schema.ResourceData, meta interface{}) er
 	}
 
 	customerGateway := resp.CustomerGateways[0]
-	d.Set("bgp_asn", customerGateway.BgpAsn)
 	d.Set("ip_address", customerGateway.IpAddress)
 	d.Set("type", customerGateway.Type)
 	d.Set("tags", tagsToMap(customerGateway.Tags))
+
+	if *customerGateway.BgpAsn != "" {
+		val, err := strconv.ParseInt(*customerGateway.BgpAsn, 0, 0)
+		if err != nil {
+			return fmt.Errorf("error parsing bgp_asn: %s", err)
+		}
+
+		d.Set("bgp_asn", int(val))
+	}
 
 	return nil
 }

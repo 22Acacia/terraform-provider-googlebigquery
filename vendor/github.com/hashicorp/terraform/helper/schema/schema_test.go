@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/hashicorp/hil/ast"
 	"github.com/hashicorp/terraform/config"
-	"github.com/hashicorp/terraform/config/lang/ast"
 	"github.com/hashicorp/terraform/helper/hashcode"
 	"github.com/hashicorp/terraform/terraform"
 )
@@ -491,7 +491,7 @@ func TestSchemaMap_Diff(t *testing.T) {
 				Attributes: map[string]*terraform.ResourceAttrDiff{
 					"port": &terraform.ResourceAttrDiff{
 						Old:         "",
-						New:         "0",
+						New:         "false",
 						RequiresNew: true,
 					},
 				},
@@ -2344,6 +2344,56 @@ func TestSchemaMap_Diff(t *testing.T) {
 
 			Err: false,
 		},
+
+		"Bools can be set with 0/1 in config, still get true/false": {
+			Schema: map[string]*Schema{
+				"one": &Schema{
+					Type:     TypeBool,
+					Optional: true,
+				},
+				"two": &Schema{
+					Type:     TypeBool,
+					Optional: true,
+				},
+				"three": &Schema{
+					Type:     TypeBool,
+					Optional: true,
+				},
+			},
+
+			State: &terraform.InstanceState{
+				Attributes: map[string]string{
+					"one":   "false",
+					"two":   "true",
+					"three": "true",
+				},
+			},
+
+			Config: map[string]interface{}{
+				"one": "1",
+				"two": "0",
+			},
+
+			Diff: &terraform.InstanceDiff{
+				Attributes: map[string]*terraform.ResourceAttrDiff{
+					"one": &terraform.ResourceAttrDiff{
+						Old: "false",
+						New: "true",
+					},
+					"two": &terraform.ResourceAttrDiff{
+						Old: "true",
+						New: "false",
+					},
+					"three": &terraform.ResourceAttrDiff{
+						Old:        "true",
+						New:        "false",
+						NewRemoved: true,
+					},
+				},
+			},
+
+			Err: false,
+		},
 	}
 
 	for tn, tc := range cases {
@@ -3643,6 +3693,97 @@ func TestSchemaMap_Validate(t *testing.T) {
 		if tc.Errors != nil {
 			if !reflect.DeepEqual(es, tc.Errors) {
 				t.Fatalf("%q: errors:\n\nexpected: %q\ngot: %q", tn, tc.Errors, es)
+			}
+		}
+	}
+}
+
+func TestSchemaSet_ValidateMaxItems(t *testing.T) {
+	cases := map[string]struct {
+		Schema          map[string]*Schema
+		State           *terraform.InstanceState
+		Config          map[string]interface{}
+		ConfigVariables map[string]string
+		Diff            *terraform.InstanceDiff
+		Err             bool
+		Errors          []error
+	}{
+		"#0": {
+			Schema: map[string]*Schema{
+				"aliases": &Schema{
+					Type:     TypeSet,
+					Optional: true,
+					MaxItems: 1,
+					Elem:     &Schema{Type: TypeString},
+				},
+			},
+			State: nil,
+			Config: map[string]interface{}{
+				"aliases": []interface{}{"foo", "bar"},
+			},
+			Diff: nil,
+			Err:  true,
+			Errors: []error{
+				fmt.Errorf("aliases: attribute supports 1 item maximum, config has 2 declared"),
+			},
+		},
+		"#1": {
+			Schema: map[string]*Schema{
+				"aliases": &Schema{
+					Type:     TypeSet,
+					Optional: true,
+					Elem:     &Schema{Type: TypeString},
+				},
+			},
+			State: nil,
+			Config: map[string]interface{}{
+				"aliases": []interface{}{"foo", "bar"},
+			},
+			Diff:   nil,
+			Err:    false,
+			Errors: nil,
+		},
+		"#2": {
+			Schema: map[string]*Schema{
+				"aliases": &Schema{
+					Type:     TypeSet,
+					Optional: true,
+					MaxItems: 1,
+					Elem:     &Schema{Type: TypeString},
+				},
+			},
+			State: nil,
+			Config: map[string]interface{}{
+				"aliases": []interface{}{"foo"},
+			},
+			Diff:   nil,
+			Err:    false,
+			Errors: nil,
+		},
+	}
+
+	for tn, tc := range cases {
+		c, err := config.NewRawConfig(tc.Config)
+		if err != nil {
+			t.Fatalf("%q: err: %s", tn, err)
+		}
+		_, es := schemaMap(tc.Schema).Validate(terraform.NewResourceConfig(c))
+
+		if len(es) > 0 != tc.Err {
+			if len(es) == 0 {
+				t.Errorf("%q: no errors", tn)
+			}
+
+			for _, e := range es {
+				t.Errorf("%q: err: %s", tn, e)
+			}
+
+			t.FailNow()
+		}
+
+		if tc.Errors != nil {
+			if !reflect.DeepEqual(es, tc.Errors) {
+				t.Fatalf("%q: expected: %q\ngot: %q", tn, tc.Errors, es)
 			}
 		}
 	}

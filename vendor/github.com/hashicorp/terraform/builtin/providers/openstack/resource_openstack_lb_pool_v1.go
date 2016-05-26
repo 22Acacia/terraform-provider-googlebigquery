@@ -28,7 +28,7 @@ func resourceLBPoolV1() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				ForceNew:    true,
-				DefaultFunc: envDefaultFuncAllowMissing("OS_REGION_NAME"),
+				DefaultFunc: schema.EnvDefaultFunc("OS_REGION_NAME", ""),
 			},
 			"name": &schema.Schema{
 				Type:     schema.TypeString,
@@ -66,7 +66,7 @@ func resourceLBPoolV1() *schema.Resource {
 							Type:        schema.TypeString,
 							Required:    true,
 							ForceNew:    true,
-							DefaultFunc: envDefaultFuncAllowMissing("OS_REGION_NAME"),
+							DefaultFunc: schema.EnvDefaultFunc("OS_REGION_NAME", ""),
 						},
 						"tenant_id": &schema.Schema{
 							Type:     schema.TypeString,
@@ -97,9 +97,7 @@ func resourceLBPoolV1() *schema.Resource {
 				Optional: true,
 				ForceNew: false,
 				Elem:     &schema.Schema{Type: schema.TypeString},
-				Set: func(v interface{}) int {
-					return hashcode.String(v.(string))
-				},
+				Set:      schema.HashString,
 			},
 		},
 	}
@@ -130,7 +128,8 @@ func resourceLBPoolV1Create(d *schema.ResourceData, meta interface{}) error {
 	log.Printf("[DEBUG] Waiting for OpenStack LB pool (%s) to become available.", p.ID)
 
 	stateConf := &resource.StateChangeConf{
-		Target:     "ACTIVE",
+		Pending:    []string{"PENDING_CREATE"},
+		Target:     []string{"ACTIVE"},
 		Refresh:    waitForLBPoolActive(networkingClient, p.ID),
 		Timeout:    2 * time.Minute,
 		Delay:      5 * time.Second,
@@ -293,8 +292,8 @@ func resourceLBPoolV1Delete(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	stateConf := &resource.StateChangeConf{
-		Pending:    []string{"ACTIVE"},
-		Target:     "DELETED",
+		Pending:    []string{"ACTIVE", "PENDING_DELETE"},
+		Target:     []string{"DELETED"},
 		Refresh:    waitForLBPoolDelete(networkingClient, d.Id()),
 		Timeout:    2 * time.Minute,
 		Delay:      5 * time.Second,

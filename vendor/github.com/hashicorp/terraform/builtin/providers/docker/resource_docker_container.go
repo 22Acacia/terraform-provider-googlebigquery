@@ -80,12 +80,19 @@ func resourceDockerContainer() *schema.Resource {
 				Elem:     &schema.Schema{Type: schema.TypeString},
 			},
 
+			"user": &schema.Schema{
+				Type:     schema.TypeString,
+				Optional: true,
+				ForceNew: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
+			},
+
 			"dns": &schema.Schema{
 				Type:     schema.TypeSet,
 				Optional: true,
 				ForceNew: true,
 				Elem:     &schema.Schema{Type: schema.TypeString},
-				Set:      stringSetHash,
+				Set:      schema.HashString,
 			},
 
 			"publish_all_ports": &schema.Schema{
@@ -101,9 +108,9 @@ func resourceDockerContainer() *schema.Resource {
 				Default:  "no",
 				ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
 					value := v.(string)
-					if !regexp.MustCompile(`^(no|on-failure|always)$`).MatchString(value) {
+					if !regexp.MustCompile(`^(no|on-failure|always|unless-stopped)$`).MatchString(value) {
 						es = append(es, fmt.Errorf(
-							"%q must be one of \"no\", \"on-failure\", or \"always\"", k))
+							"%q must be one of \"no\", \"on-failure\", \"always\" or \"unless-stopped\"", k))
 					}
 					return
 				},
@@ -119,16 +126,105 @@ func resourceDockerContainer() *schema.Resource {
 				Type:     schema.TypeSet,
 				Optional: true,
 				ForceNew: true,
-				Elem:     getVolumesElem(),
-				Set:      resourceDockerVolumesHash,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"from_container": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							ForceNew: true,
+						},
+
+						"container_path": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							ForceNew: true,
+						},
+
+						"host_path": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							ForceNew: true,
+							ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
+								value := v.(string)
+								if !regexp.MustCompile(`^/`).MatchString(value) {
+									es = append(es, fmt.Errorf(
+										"%q must be an absolute path", k))
+								}
+								return
+							},
+						},
+
+						"volume_name": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							ForceNew: true,
+						},
+
+						"read_only": &schema.Schema{
+							Type:     schema.TypeBool,
+							Optional: true,
+							ForceNew: true,
+						},
+					},
+				},
+				Set: resourceDockerVolumesHash,
 			},
 
 			"ports": &schema.Schema{
 				Type:     schema.TypeSet,
 				Optional: true,
 				ForceNew: true,
-				Elem:     getPortsElem(),
-				Set:      resourceDockerPortsHash,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"internal": &schema.Schema{
+							Type:     schema.TypeInt,
+							Required: true,
+							ForceNew: true,
+						},
+
+						"external": &schema.Schema{
+							Type:     schema.TypeInt,
+							Optional: true,
+							ForceNew: true,
+						},
+
+						"ip": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							ForceNew: true,
+						},
+
+						"protocol": &schema.Schema{
+							Type:     schema.TypeString,
+							Default:  "tcp",
+							Optional: true,
+							ForceNew: true,
+						},
+					},
+				},
+				Set: resourceDockerPortsHash,
+			},
+
+			"host": &schema.Schema{
+				Type:     schema.TypeSet,
+				Optional: true,
+				ForceNew: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"ip": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							ForceNew: true,
+						},
+
+						"host": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							ForceNew: true,
+						},
+					},
+				},
+				Set: resourceDockerHostsHash,
 			},
 
 			"env": &schema.Schema{
@@ -136,7 +232,7 @@ func resourceDockerContainer() *schema.Resource {
 				Optional: true,
 				ForceNew: true,
 				Elem:     &schema.Schema{Type: schema.TypeString},
-				Set:      stringSetHash,
+				Set:      schema.HashString,
 			},
 
 			"links": &schema.Schema{
@@ -144,7 +240,7 @@ func resourceDockerContainer() *schema.Resource {
 				Optional: true,
 				ForceNew: true,
 				Elem:     &schema.Schema{Type: schema.TypeString},
-				Set:      stringSetHash,
+				Set:      schema.HashString,
 			},
 
 			"ip_address": &schema.Schema{
@@ -244,66 +340,13 @@ func resourceDockerContainer() *schema.Resource {
 				Optional: true,
 				ForceNew: true,
 			},
-		},
-	}
-}
 
-func getVolumesElem() *schema.Resource {
-	return &schema.Resource{
-		Schema: map[string]*schema.Schema{
-			"from_container": &schema.Schema{
-				Type:     schema.TypeString,
+			"networks": &schema.Schema{
+				Type:     schema.TypeSet,
 				Optional: true,
 				ForceNew: true,
-			},
-
-			"container_path": &schema.Schema{
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-
-			"host_path": &schema.Schema{
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-
-			"read_only": &schema.Schema{
-				Type:     schema.TypeBool,
-				Optional: true,
-				ForceNew: true,
-			},
-		},
-	}
-}
-
-func getPortsElem() *schema.Resource {
-	return &schema.Resource{
-		Schema: map[string]*schema.Schema{
-			"internal": &schema.Schema{
-				Type:     schema.TypeInt,
-				Required: true,
-				ForceNew: true,
-			},
-
-			"external": &schema.Schema{
-				Type:     schema.TypeInt,
-				Optional: true,
-				ForceNew: true,
-			},
-
-			"ip": &schema.Schema{
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-
-			"protocol": &schema.Schema{
-				Type:     schema.TypeString,
-				Default:  "tcp",
-				Optional: true,
-				ForceNew: true,
+				Elem:     &schema.Schema{Type: schema.TypeString},
+				Set:      schema.HashString,
 			},
 		},
 	}
@@ -330,6 +373,21 @@ func resourceDockerPortsHash(v interface{}) int {
 	return hashcode.String(buf.String())
 }
 
+func resourceDockerHostsHash(v interface{}) int {
+	var buf bytes.Buffer
+	m := v.(map[string]interface{})
+
+	if v, ok := m["ip"]; ok {
+		buf.WriteString(fmt.Sprintf("%v-", v.(string)))
+	}
+
+	if v, ok := m["host"]; ok {
+		buf.WriteString(fmt.Sprintf("%v-", v.(string)))
+	}
+
+	return hashcode.String(buf.String())
+}
+
 func resourceDockerVolumesHash(v interface{}) int {
 	var buf bytes.Buffer
 	m := v.(map[string]interface{})
@@ -346,13 +404,13 @@ func resourceDockerVolumesHash(v interface{}) int {
 		buf.WriteString(fmt.Sprintf("%v-", v.(string)))
 	}
 
+	if v, ok := m["volume_name"]; ok {
+		buf.WriteString(fmt.Sprintf("%v-", v.(string)))
+	}
+
 	if v, ok := m["read_only"]; ok {
 		buf.WriteString(fmt.Sprintf("%v-", v.(bool)))
 	}
 
 	return hashcode.String(buf.String())
-}
-
-func stringSetHash(v interface{}) int {
-	return hashcode.String(v.(string))
 }

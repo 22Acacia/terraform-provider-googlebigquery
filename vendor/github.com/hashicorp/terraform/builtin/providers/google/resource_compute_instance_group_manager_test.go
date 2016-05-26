@@ -55,6 +55,10 @@ func TestAccInstanceGroupManager_update(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckInstanceGroupManagerExists(
 						"google_compute_instance_group_manager.igm-update", &manager),
+					testAccCheckInstanceGroupManagerNamedPorts(
+						"google_compute_instance_group_manager.igm-update",
+						map[string]int64{"customhttp": 8080},
+						&manager),
 				),
 			},
 			resource.TestStep{
@@ -65,6 +69,10 @@ func TestAccInstanceGroupManager_update(t *testing.T) {
 					testAccCheckInstanceGroupManagerUpdated(
 						"google_compute_instance_group_manager.igm-update", 3,
 						"google_compute_target_pool.igm-update", template2),
+					testAccCheckInstanceGroupManagerNamedPorts(
+						"google_compute_instance_group_manager.igm-update",
+						map[string]int64{"customhttp": 8080, "customhttps": 8443},
+						&manager),
 				),
 			},
 		},
@@ -157,6 +165,42 @@ func testAccCheckInstanceGroupManagerUpdated(n string, size int64, targetPool st
 	}
 }
 
+func testAccCheckInstanceGroupManagerNamedPorts(n string, np map[string]int64, instanceGroupManager *compute.InstanceGroupManager) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[n]
+		if !ok {
+			return fmt.Errorf("Not found: %s", n)
+		}
+
+		if rs.Primary.ID == "" {
+			return fmt.Errorf("No ID is set")
+		}
+
+		config := testAccProvider.Meta().(*Config)
+
+		manager, err := config.clientCompute.InstanceGroupManagers.Get(
+			config.Project, rs.Primary.Attributes["zone"], rs.Primary.ID).Do()
+		if err != nil {
+			return err
+		}
+
+		var found bool
+		for _, namedPort := range manager.NamedPorts {
+			found = false
+			for name, port := range np {
+				if namedPort.Name == name && namedPort.Port == port {
+					found = true
+				}
+			}
+			if !found {
+				return fmt.Errorf("named port incorrect")
+			}
+		}
+
+		return nil
+	}
+}
+
 func testAccInstanceGroupManager_basic(template, target, igm1, igm2 string) string {
 	return fmt.Sprintf(`
 	resource "google_compute_instance_template" "igm-basic" {
@@ -166,7 +210,7 @@ func testAccInstanceGroupManager_basic(template, target, igm1, igm2 string) stri
 		tags = ["foo", "bar"]
 
 		disk {
-			source_image = "debian-cloud/debian-7-wheezy-v20140814"
+			source_image = "debian-cloud/debian-7-wheezy-v20160301"
 			auto_delete = true
 			boot = true
 		}
@@ -220,7 +264,7 @@ func testAccInstanceGroupManager_update(template, target, igm string) string {
 		tags = ["foo", "bar"]
 
 		disk {
-			source_image = "debian-cloud/debian-7-wheezy-v20140814"
+			source_image = "debian-cloud/debian-7-wheezy-v20160301"
 			auto_delete = true
 			boot = true
 		}
@@ -252,6 +296,10 @@ func testAccInstanceGroupManager_update(template, target, igm string) string {
 		base_instance_name = "igm-update"
 		zone = "us-central1-c"
 		target_size = 2
+		named_port {
+			name = "customhttp"
+			port = 8080
+		}
 	}`, template, target, igm)
 }
 
@@ -265,7 +313,7 @@ func testAccInstanceGroupManager_update2(template1, target, template2, igm strin
 		tags = ["foo", "bar"]
 
 		disk {
-			source_image = "debian-cloud/debian-7-wheezy-v20140814"
+			source_image = "debian-cloud/debian-7-wheezy-v20160301"
 			auto_delete = true
 			boot = true
 		}
@@ -296,7 +344,7 @@ func testAccInstanceGroupManager_update2(template1, target, template2, igm strin
 		tags = ["foo", "bar"]
 
 		disk {
-			source_image = "debian-cloud/debian-7-wheezy-v20140814"
+			source_image = "debian-cloud/debian-7-wheezy-v20160301"
 			auto_delete = true
 			boot = true
 		}
@@ -322,5 +370,13 @@ func testAccInstanceGroupManager_update2(template1, target, template2, igm strin
 		base_instance_name = "igm-update"
 		zone = "us-central1-c"
 		target_size = 3
+		named_port {
+			name = "customhttp"
+			port = 8080
+		}
+		named_port {
+			name = "customhttps"
+			port = 8443
+		}
 	}`, template1, target, template2, igm)
 }

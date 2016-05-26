@@ -29,11 +29,11 @@ variable "region" {
 }
 ```
 
-This defines three variables within your Terraform configuration.
-The first two have empty blocks `{}`. The third sets a default. If
-a default value is set, the variable is optional. Otherwise, the
-variable is required. If you run `terraform plan` now, Terraform will
-error since the required variables are not set.
+This defines three variables within your Terraform configuration.  The first
+two have empty blocks `{}`. The third sets a default. If a default value is
+set, the variable is optional. Otherwise, the variable is required. If you run
+`terraform plan` now, Terraform will prompt you for the values for unset string
+variables.
 
 ## Using Variables in Configuration
 
@@ -123,7 +123,7 @@ support for the "us-west-2" region as well:
 ```
 variable "amis" {
 	default = {
-		us-east-1 = "ami-8eb061e6"
+		us-east-1 = "ami-b8b061d0"
 		us-west-2 = "ami-ef5e24df"
 	}
 }
@@ -137,7 +137,7 @@ Then, replace the "aws\_instance" with the following:
 ```
 resource "aws_instance" "example" {
 	ami = "${lookup(var.amis, var.region)}"
-	instance_type = "t2.micro"
+	instance_type = "t1.micro"
 }
 ```
 

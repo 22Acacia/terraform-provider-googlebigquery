@@ -1,8 +1,8 @@
 package cloudstack
 
 import (
+	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,10 +21,19 @@ func resourceCloudStackNetworkACLRule() *schema.Resource {
 		Delete: resourceCloudStackNetworkACLRuleDelete,
 
 		Schema: map[string]*schema.Schema{
+			"acl_id": &schema.Schema{
+				Type:          schema.TypeString,
+				Optional:      true,
+				ForceNew:      true,
+				ConflictsWith: []string{"aclid"},
+			},
+
 			"aclid": &schema.Schema{
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
+				Type:          schema.TypeString,
+				Optional:      true,
+				ForceNew:      true,
+				Deprecated:    "Please use the `acl_id` field instead",
+				ConflictsWith: []string{"acl_id"},
 			},
 
 			"managed": &schema.Schema{
@@ -94,6 +103,12 @@ func resourceCloudStackNetworkACLRule() *schema.Resource {
 					},
 				},
 			},
+
+			"parallelism": &schema.Schema{
+				Type:     schema.TypeInt,
+				Optional: true,
+				Default:  2,
+			},
 		},
 	}
 }
@@ -104,8 +119,16 @@ func resourceCloudStackNetworkACLRuleCreate(d *schema.ResourceData, meta interfa
 		return err
 	}
 
+	aclid, ok := d.GetOk("acl_id")
+	if !ok {
+		aclid, ok = d.GetOk("aclid")
+	}
+	if !ok {
+		return errors.New("Either `acl_id` or [deprecated] `aclid` must be provided.")
+	}
+
 	// We need to set this upfront in order to be able to save a partial state
-	d.SetId(d.Get("aclid").(string))
+	d.SetId(aclid.(string))
 
 	// Create all rules that are configured
 	if nrs := d.Get("rule").(*schema.Set); nrs.Len() > 0 {
@@ -135,7 +158,7 @@ func createNetworkACLRules(
 	var wg sync.WaitGroup
 	wg.Add(nrs.Len())
 
-	sem := make(chan struct{}, 10)
+	sem := make(chan struct{}, d.Get("parallelism").(int))
 	for _, rule := range nrs.List() {
 		// Put in a tiny sleep here to avoid DoS'ing the API
 		time.Sleep(500 * time.Millisecond)
@@ -224,9 +247,6 @@ func createNetworkACLRule(
 			// Create an empty schema.Set to hold all processed ports
 			ports := &schema.Set{F: schema.HashString}
 
-			// Define a regexp for parsing the port
-			re := regexp.MustCompile(`^(\d+)(?:-(\d+))?$`)
-
 			for _, port := range ps.List() {
 				if _, ok := uuids[port.(string)]; ok {
 					ports.Add(port)
@@ -234,7 +254,7 @@ func createNetworkACLRule(
 					continue
 				}
 
-				m := re.FindStringSubmatch(port.(string))
+				m := splitPorts.FindStringSubmatch(port.(string))
 
 				startPort, err := strconv.Atoi(m[1])
 				if err != nil {
@@ -495,7 +515,7 @@ func deleteNetworkACLRules(
 	var wg sync.WaitGroup
 	wg.Add(ors.Len())
 
-	sem := make(chan struct{}, 10)
+	sem := make(chan struct{}, d.Get("parallelism").(int))
 	for _, rule := range ors.List() {
 		// Put a sleep here to avoid DoS'ing the API
 		time.Sleep(500 * time.Millisecond)
@@ -607,7 +627,15 @@ func verifyNetworkACLRuleParams(d *schema.ResourceData, rule map[string]interfac
 	case "all":
 		// No additional test are needed, so just leave this empty...
 	case "tcp", "udp":
-		if _, ok := rule["ports"]; !ok {
+		if ports, ok := rule["ports"].(*schema.Set); ok {
+			for _, port := range ports.List() {
+				m := splitPorts.FindStringSubmatch(port.(string))
+				if m == nil {
+					return fmt.Errorf(
+						"%q is not a valid port value. Valid options are '80' or '80-90'", port.(string))
+				}
+			}
+		} else {
 			return fmt.Errorf(
 				"Parameter ports is a required parameter when *not* using protocol 'icmp'")
 		}
@@ -615,7 +643,7 @@ func verifyNetworkACLRuleParams(d *schema.ResourceData, rule map[string]interfac
 		_, err := strconv.ParseInt(protocol, 0, 0)
 		if err != nil {
 			return fmt.Errorf(
-				"%s is not a valid protocol. Valid options are 'tcp', 'udp', "+
+				"%q is not a valid protocol. Valid options are 'tcp', 'udp', "+
 					"'icmp', 'all' or a valid protocol number", protocol)
 		}
 	}

@@ -44,7 +44,7 @@ The following arguments are supported:
 * `instance_initiated_shutdown_behavior` - (Optional) Shutdown behavior for the 
 instance. Amazon defaults this to `stop` for EBS-backed instances and 
 `terminate` for instance-store instances. Cannot be set on instance-store 
-instances. See [Shutdown Behavior](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/terminating-instances.html#Using_ChangingInstanceInitiatedShutdownBehavior) for more information.
+instances. See [Shutdown Behavior](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/terminating-instances.html#Using_ChangingInstanceInitiatedShutdownBehavior) for more information.
 * `instance_type` - (Required) The type of instance to start
 * `key_name` - (Optional) The key name to use for the instance.
 * `monitoring` - (Optional) If true, the launched EC2 instance will have detailed monitoring enabled. (Available since v0.6.0)
@@ -52,7 +52,7 @@ instances. See [Shutdown Behavior](http://docs.aws.amazon.com/AWSEC2/latest/User
    If you are within a non-default VPC, you'll need to use `vpc_security_group_ids` instead.
 * `vpc_security_group_ids` - (Optional) A list of security group IDs to associate with.
 * `subnet_id` - (Optional) The VPC Subnet ID to launch in.
-* `associate_public_ip_address` - (Optional) Associate a public ip address with an instance in a VPC.
+* `associate_public_ip_address` - (Optional) Associate a public ip address with an instance in a VPC.  Boolean value. 
 * `private_ip` - (Optional) Private IP address to associate with the
      instance in a VPC.
 * `source_dest_check` - (Optional) Controls if traffic is routed to the instance when
@@ -69,12 +69,11 @@ instances. See [Shutdown Behavior](http://docs.aws.amazon.com/AWSEC2/latest/User
   "Instance Store") volumes on the instance. See [Block Devices](#block-devices) below for details.
 
 
-<a id="block-devices"></a>
 ## Block devices
 
 Each of the `*_block_device` attributes controls a portion of the AWS
 Instance's "Block Device Mapping". It's a good idea to familiarize yourself with [AWS's Block Device
-Mapping docs](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/block-device-mapping-concepts.html)
+Mapping docs](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/block-device-mapping-concepts.html)
 to understand the implications of using these attributes.
 
 The `root_block_device` mapping supports the following:
@@ -83,7 +82,7 @@ The `root_block_device` mapping supports the following:
   or `"io1"`. (Default: `"standard"`).
 * `volume_size` - (Optional) The size of the volume in gigabytes.
 * `iops` - (Optional) The amount of provisioned
-  [IOPS](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-io-characteristics.html).
+  [IOPS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-io-characteristics.html).
   This must be set with a `volume_type` of `"io1"`.
 * `delete_on_termination` - (Optional) Whether the volume should be destroyed
   on instance termination (Default: `true`).
@@ -99,26 +98,28 @@ Each `ebs_block_device` supports the following:
   or `"io1"`. (Default: `"standard"`).
 * `volume_size` - (Optional) The size of the volume in gigabytes.
 * `iops` - (Optional) The amount of provisioned
-  [IOPS](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-io-characteristics.html).
+  [IOPS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-io-characteristics.html).
   This must be set with a `volume_type` of `"io1"`.
 * `delete_on_termination` - (Optional) Whether the volume should be destroyed
   on instance termination (Default: `true`).
 * `encrypted` - (Optional) Enables [EBS
-  encryption](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSEncryption.html)
+  encryption](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSEncryption.html)
   on the volume (Default: `false`). Cannot be used with `snapshot_id`.
 
 Modifying any `ebs_block_device` currently requires resource replacement.
+
+~> **NOTE on EBS block devices:** If you use `ebs_block_device` on an `aws_instance`, Terraform will assume management over the full set of non-root EBS block devices for the instance, and treats additional block devices as drift. For this reason, `ebs_block_device` cannot be mixed with external `aws_ebs_volume` + `aws_ebs_volume_attachment` resources for a given instance.
 
 Each `ephemeral_block_device` supports the following:
 
 * `device_name` - The name of the block device to mount on the instance.
 * `virtual_name` - The [Instance Store Device
-  Name](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/InstanceStorage.html#InstanceStoreDeviceNames)
+  Name](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/InstanceStorage.html#InstanceStoreDeviceNames)
   (e.g. `"ephemeral0"`)
 
 Each AWS Instance type has a different set of Instance Store block devices
 available for attachment. AWS [publishes a
-list](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/InstanceStorage.html#StorageOnInstanceTypes)
+list](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/InstanceStorage.html#StorageOnInstanceTypes)
 of which ephemeral devices are available on each type. The devices are always
 identified by the `virtual_name` in the format `"ephemeral{0..N}"`.
 
@@ -137,7 +138,7 @@ The following attributes are exported:
 * `key_name` - The key name of the instance
 * `public_dns` - The public DNS name assigned to the instance. For EC2-VPC, this 
   is only available if you've enabled DNS hostnames for your VPC
-* `public_ip` - The public IP address assigned to the instance, if applicable.
+* `public_ip` - The public IP address assigned to the instance, if applicable. **NOTE**: If you are using an [`aws_eip`](/docs/providers/aws/r/eip.html) with your instance, you should refer to the EIP's address directly and not use `public_ip`, as this field will change after the EIP is attached.
 * `private_dns` - The private DNS name assigned to the instance. Can only be 
   used inside the Amazon EC2, and only available if you've enabled DNS hostnames 
   for your VPC

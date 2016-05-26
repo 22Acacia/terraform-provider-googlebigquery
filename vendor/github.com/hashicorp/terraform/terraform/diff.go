@@ -286,6 +286,11 @@ type ResourceAttrDiff struct {
 	Type        DiffAttrType
 }
 
+// Empty returns true if the diff for this attr is neutral
+func (d *ResourceAttrDiff) Empty() bool {
+	return d.Old == d.New && !d.NewComputed && !d.NewRemoved
+}
+
 func (d *ResourceAttrDiff) GoString() string {
 	return fmt.Sprintf("*%#v", *d)
 }
@@ -463,6 +468,13 @@ func (d *InstanceDiff) Same(d2 *InstanceDiff) (bool, string) {
 			// is actually the same as the existing state which would remove the
 			// key from the diff.
 			if diffOld.NewComputed && strings.HasSuffix(k, ".#") {
+				ok = true
+			}
+
+			// Similarly, in a RequiresNew scenario, a list that shows up in the plan
+			// diff can disappear from the apply diff, which is calculated from an
+			// empty state.
+			if d.RequiresNew() && strings.HasSuffix(k, ".#") {
 				ok = true
 			}
 

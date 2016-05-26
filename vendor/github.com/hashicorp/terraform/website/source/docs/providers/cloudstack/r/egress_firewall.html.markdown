@@ -14,7 +14,7 @@ Creates egress firewall rules for a given network.
 
 ```
 resource "cloudstack_egress_firewall" "default" {
-  network = "test-network"
+  network_id = "6eb22f91-7454-4107-89f4-36afcdf33021"
 
   rule {
     cidr_list = ["10.0.0.0/8"]
@@ -28,8 +28,11 @@ resource "cloudstack_egress_firewall" "default" {
 
 The following arguments are supported:
 
-* `network` - (Required) The network for which to create the egress firewall
-    rules. Changing this forces a new resource to be created.
+* `network_id` - (Required) The network ID for which to create the egress
+    firewall rules. Changing this forces a new resource to be created.
+
+* `network` - (Required, Deprecated) The network for which to create the egress
+    firewall rules. Changing this forces a new resource to be created.
 
 * `managed` - (Optional) USE WITH CAUTION! If enabled all the egress firewall
     rules for this network will be managed by this resource. This means it will
@@ -38,6 +41,9 @@ The following arguments are supported:
 * `rule` - (Optional) Can be specified multiple times. Each rule block supports
     fields documented below. If `managed = false` at least one rule is required!
 
+* `parallelism` (Optional) Specifies how much rules will be created or deleted
+    concurrently. (defaults 2)
+    
 The `rule` block supports:
 
 * `cidr_list` - (Required) A CIDR list to allow access to the given ports.

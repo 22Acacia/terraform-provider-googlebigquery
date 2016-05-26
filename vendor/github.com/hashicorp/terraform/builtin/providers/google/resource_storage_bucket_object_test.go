@@ -16,8 +16,10 @@ import (
 var tf, err = ioutil.TempFile("", "tf-gce-test")
 var bucketName = "tf-gce-bucket-test"
 var objectName = "tf-gce-test"
+var content = "now this is content!"
 
 func TestAccGoogleStorageObject_basic(t *testing.T) {
+	bucketName := testBucketName()
 	data := []byte("data data data")
 	h := md5.New()
 	h.Write(data)
@@ -35,7 +37,33 @@ func TestAccGoogleStorageObject_basic(t *testing.T) {
 		CheckDestroy: testAccGoogleStorageObjectDestroy,
 		Steps: []resource.TestStep{
 			resource.TestStep{
-				Config: testGoogleStorageBucketsObjectBasic,
+				Config: testGoogleStorageBucketsObjectBasic(bucketName),
+				Check:  testAccCheckGoogleStorageObject(bucketName, objectName, data_md5),
+			},
+		},
+	})
+}
+
+func TestAccGoogleStorageObject_content(t *testing.T) {
+	bucketName := testBucketName()
+	data := []byte(content)
+	h := md5.New()
+	h.Write(data)
+	data_md5 := base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+	ioutil.WriteFile(tf.Name(), data, 0644)
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			if err != nil {
+				panic(err)
+			}
+			testAccPreCheck(t)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccGoogleStorageObjectDestroy,
+		Steps: []resource.TestStep{
+			resource.TestStep{
+				Config: testGoogleStorageBucketsObjectContent(bucketName),
 				Check:  testAccCheckGoogleStorageObject(bucketName, objectName, data_md5),
 			},
 		},
@@ -87,7 +115,22 @@ func testAccGoogleStorageObjectDestroy(s *terraform.State) error {
 	return nil
 }
 
-var testGoogleStorageBucketsObjectBasic = fmt.Sprintf(`
+func testGoogleStorageBucketsObjectContent(bucketName string) string {
+	return fmt.Sprintf(`
+resource "google_storage_bucket" "bucket" {
+	name = "%s"
+}
+
+resource "google_storage_bucket_object" "object" {
+	name = "%s"
+	bucket = "${google_storage_bucket.bucket.name}"
+	content = "%s"
+	predefined_acl = "projectPrivate"
+}
+`, bucketName, objectName, content)
+}
+func testGoogleStorageBucketsObjectBasic(bucketName string) string {
+	return fmt.Sprintf(`
 resource "google_storage_bucket" "bucket" {
 	name = "%s"
 }
@@ -99,3 +142,4 @@ resource "google_storage_bucket_object" "object" {
 	predefined_acl = "projectPrivate"
 }
 `, bucketName, objectName, tf.Name())
+}

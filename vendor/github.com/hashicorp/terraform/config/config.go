@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/hashicorp/terraform/config/lang"
-	"github.com/hashicorp/terraform/config/lang/ast"
+	"github.com/hashicorp/hil"
+	"github.com/hashicorp/hil/ast"
 	"github.com/hashicorp/terraform/flatmap"
 	"github.com/mitchellh/mapstructure"
 	"github.com/mitchellh/reflectwalk"
@@ -81,12 +81,44 @@ type Resource struct {
 	Lifecycle    ResourceLifecycle
 }
 
+// Copy returns a copy of this Resource. Helpful for avoiding shared
+// config pointers across multiple pieces of the graph that need to do
+// interpolation.
+func (r *Resource) Copy() *Resource {
+	n := &Resource{
+		Name:         r.Name,
+		Type:         r.Type,
+		RawCount:     r.RawCount.Copy(),
+		RawConfig:    r.RawConfig.Copy(),
+		Provisioners: make([]*Provisioner, 0, len(r.Provisioners)),
+		Provider:     r.Provider,
+		DependsOn:    make([]string, len(r.DependsOn)),
+		Lifecycle:    *r.Lifecycle.Copy(),
+	}
+	for _, p := range r.Provisioners {
+		n.Provisioners = append(n.Provisioners, p.Copy())
+	}
+	copy(n.DependsOn, r.DependsOn)
+	return n
+}
+
 // ResourceLifecycle is used to store the lifecycle tuning parameters
 // to allow customized behavior
 type ResourceLifecycle struct {
 	CreateBeforeDestroy bool     `mapstructure:"create_before_destroy"`
 	PreventDestroy      bool     `mapstructure:"prevent_destroy"`
 	IgnoreChanges       []string `mapstructure:"ignore_changes"`
+}
+
+// Copy returns a copy of this ResourceLifecycle
+func (r *ResourceLifecycle) Copy() *ResourceLifecycle {
+	n := &ResourceLifecycle{
+		CreateBeforeDestroy: r.CreateBeforeDestroy,
+		PreventDestroy:      r.PreventDestroy,
+		IgnoreChanges:       make([]string, len(r.IgnoreChanges)),
+	}
+	copy(n.IgnoreChanges, r.IgnoreChanges)
+	return n
 }
 
 // Provisioner is a configured provisioner step on a resource.
@@ -96,17 +128,30 @@ type Provisioner struct {
 	ConnInfo  *RawConfig
 }
 
+// Copy returns a copy of this Provisioner
+func (p *Provisioner) Copy() *Provisioner {
+	return &Provisioner{
+		Type:      p.Type,
+		RawConfig: p.RawConfig.Copy(),
+		ConnInfo:  p.ConnInfo.Copy(),
+	}
+}
+
 // Variable is a variable defined within the configuration.
 type Variable struct {
-	Name        string
-	Default     interface{}
-	Description string
+	Name         string
+	DeclaredType string `mapstructure:"type"`
+	Default      interface{}
+	Description  string
 }
 
 // Output is an output defined within the configuration. An output is
-// resulting data that is highlighted by Terraform when finished.
+// resulting data that is highlighted by Terraform when finished. An
+// output marked Sensitive will be output in a masked form following
+// application, but will still be available in state.
 type Output struct {
 	Name      string
+	Sensitive bool
 	RawConfig *RawConfig
 }
 
@@ -119,6 +164,17 @@ const (
 	VariableTypeString
 	VariableTypeMap
 )
+
+func (v VariableType) Printable() string {
+	switch v {
+	case VariableTypeString:
+		return "string"
+	case VariableTypeMap:
+		return "map"
+	default:
+		return "unknown"
+	}
+}
 
 // ProviderConfigName returns the name of the provider configuration in
 // the given mapping that maps to the proper provider configuration
@@ -177,7 +233,7 @@ func (c *Config) Validate() error {
 	for _, v := range c.Variables {
 		if v.Type() == VariableTypeUnknown {
 			errs = append(errs, fmt.Errorf(
-				"Variable '%s': must be string or mapping",
+				"Variable '%s': must be a string or a map",
 				v.Name))
 			continue
 		}
@@ -397,15 +453,15 @@ func (c *Config) Validate() error {
 		r.RawCount.interpolate(func(root ast.Node) (string, error) {
 			// Execute the node but transform the AST so that it returns
 			// a fixed value of "5" for all interpolations.
-			out, _, err := lang.Eval(
-				lang.FixedValueTransform(
+			result, err := hil.Eval(
+				hil.FixedValueTransform(
 					root, &ast.LiteralNode{Value: "5", Typex: ast.TypeString}),
 				nil)
 			if err != nil {
 				return "", err
 			}
 
-			return out.(string), nil
+			return result.Value.(string), nil
 		})
 		_, err := strconv.ParseInt(r.RawCount.Value().(string), 0, 0)
 		if err != nil {
@@ -500,16 +556,36 @@ func (c *Config) Validate() error {
 
 	// Check that all outputs are valid
 	for _, o := range c.Outputs {
-		invalid := false
-		for k, _ := range o.RawConfig.Raw {
-			if k != "value" {
-				invalid = true
-				break
+		var invalidKeys []string
+		valueKeyFound := false
+		for k := range o.RawConfig.Raw {
+			if k == "value" {
+				valueKeyFound = true
+				continue
 			}
+			if k == "sensitive" {
+				if sensitive, ok := o.RawConfig.config[k].(bool); ok {
+					if sensitive {
+						o.Sensitive = true
+					}
+					continue
+				}
+
+				errs = append(errs, fmt.Errorf(
+					"%s: value for 'sensitive' must be boolean",
+					o.Name))
+				continue
+			}
+			invalidKeys = append(invalidKeys, k)
 		}
-		if invalid {
+		if len(invalidKeys) > 0 {
 			errs = append(errs, fmt.Errorf(
-				"%s: output should only have 'value' field", o.Name))
+				"%s: output has invalid keys: %s",
+				o.Name, strings.Join(invalidKeys, ", ")))
+		}
+		if !valueKeyFound {
+			errs = append(errs, fmt.Errorf(
+				"%s: output is missing required 'value' key", o.Name))
 		}
 
 		for _, v := range o.RawConfig.Variables {
@@ -620,7 +696,7 @@ func (c *Config) validateVarContextFn(
 		node = node.Accept(func(n ast.Node) ast.Node {
 			// If it is a concat or variable access, we allow it.
 			switch n.(type) {
-			case *ast.Concat:
+			case *ast.Output:
 				return n
 			case *ast.VariableAccess:
 				return n
@@ -773,8 +849,64 @@ func (v *Variable) Merge(v2 *Variable) *Variable {
 	return &result
 }
 
-// Type returns the type of varialbe this is.
+var typeStringMap = map[string]VariableType{
+	"string": VariableTypeString,
+	"map":    VariableTypeMap,
+}
+
+// Type returns the type of variable this is.
 func (v *Variable) Type() VariableType {
+	if v.DeclaredType != "" {
+		declaredType, ok := typeStringMap[v.DeclaredType]
+		if !ok {
+			return VariableTypeUnknown
+		}
+
+		return declaredType
+	}
+
+	return v.inferTypeFromDefault()
+}
+
+// ValidateTypeAndDefault ensures that default variable value is compatible
+// with the declared type (if one exists), and that the type is one which is
+// known to Terraform
+func (v *Variable) ValidateTypeAndDefault() error {
+	// If an explicit type is declared, ensure it is valid
+	if v.DeclaredType != "" {
+		if _, ok := typeStringMap[v.DeclaredType]; !ok {
+			return fmt.Errorf("Variable '%s' must be of type string or map - '%s' is not a valid type", v.Name, v.DeclaredType)
+		}
+	}
+
+	if v.DeclaredType == "" || v.Default == nil {
+		return nil
+	}
+
+	if v.inferTypeFromDefault() != v.Type() {
+		return fmt.Errorf("'%s' has a default value which is not of type '%s'", v.Name, v.DeclaredType)
+	}
+
+	return nil
+}
+
+func (v *Variable) mergerName() string {
+	return v.Name
+}
+
+func (v *Variable) mergerMerge(m merger) merger {
+	return v.Merge(m.(*Variable))
+}
+
+// Required tests whether a variable is required or not.
+func (v *Variable) Required() bool {
+	return v.Default == nil
+}
+
+// inferTypeFromDefault contains the logic for the old method of inferring
+// variable types - we can also use this for validating that the declared
+// type matches the type of the default value
+func (v *Variable) inferTypeFromDefault() VariableType {
 	if v.Default == nil {
 		return VariableTypeString
 	}
@@ -792,17 +924,4 @@ func (v *Variable) Type() VariableType {
 	}
 
 	return VariableTypeUnknown
-}
-
-func (v *Variable) mergerName() string {
-	return v.Name
-}
-
-func (v *Variable) mergerMerge(m merger) merger {
-	return v.Merge(m.(*Variable))
-}
-
-// Required tests whether a variable is required or not.
-func (v *Variable) Required() bool {
-	return v.Default == nil
 }

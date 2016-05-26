@@ -129,7 +129,7 @@ func resourceAwsVpnGatewayDelete(d *schema.ResourceData, meta interface{}) error
 
 	log.Printf("[INFO] Deleting VPN gateway: %s", d.Id())
 
-	return resource.Retry(5*time.Minute, func() error {
+	return resource.Retry(5*time.Minute, func() *resource.RetryError {
 		_, err := conn.DeleteVpnGateway(&ec2.DeleteVpnGatewayInput{
 			VpnGatewayId: aws.String(d.Id()),
 		})
@@ -139,17 +139,17 @@ func resourceAwsVpnGatewayDelete(d *schema.ResourceData, meta interface{}) error
 
 		ec2err, ok := err.(awserr.Error)
 		if !ok {
-			return err
+			return resource.RetryableError(err)
 		}
 
 		switch ec2err.Code() {
 		case "InvalidVpnGatewayID.NotFound":
 			return nil
 		case "IncorrectState":
-			return err // retry
+			return resource.RetryableError(err)
 		}
 
-		return resource.RetryError{Err: err}
+		return resource.NonRetryableError(err)
 	})
 }
 
@@ -173,16 +173,16 @@ func resourceAwsVpnGatewayAttach(d *schema.ResourceData, meta interface{}) error
 		VpcId:        aws.String(d.Get("vpc_id").(string)),
 	}
 
-	err := resource.Retry(30*time.Second, func() error {
+	err := resource.Retry(30*time.Second, func() *resource.RetryError {
 		_, err := conn.AttachVpnGateway(req)
 		if err != nil {
 			if ec2err, ok := err.(awserr.Error); ok {
 				if "InvalidVpnGatewayID.NotFound" == ec2err.Code() {
-					//retry
-					return fmt.Errorf("Gateway not found, retry for eventual consistancy")
+					return resource.RetryableError(
+						fmt.Errorf("Gateway not found, retry for eventual consistancy"))
 				}
 			}
-			return resource.RetryError{Err: err}
+			return resource.NonRetryableError(err)
 		}
 		return nil
 	})
@@ -195,7 +195,7 @@ func resourceAwsVpnGatewayAttach(d *schema.ResourceData, meta interface{}) error
 	log.Printf("[DEBUG] Waiting for VPN gateway (%s) to attach", d.Id())
 	stateConf := &resource.StateChangeConf{
 		Pending: []string{"detached", "attaching"},
-		Target:  "attached",
+		Target:  []string{"attached"},
 		Refresh: vpnGatewayAttachStateRefreshFunc(conn, d.Id(), "available"),
 		Timeout: 1 * time.Minute,
 	}
@@ -256,7 +256,7 @@ func resourceAwsVpnGatewayDetach(d *schema.ResourceData, meta interface{}) error
 	log.Printf("[DEBUG] Waiting for VPN gateway (%s) to detach", d.Id())
 	stateConf := &resource.StateChangeConf{
 		Pending: []string{"attached", "detaching", "available"},
-		Target:  "detached",
+		Target:  []string{"detached"},
 		Refresh: vpnGatewayAttachStateRefreshFunc(conn, d.Id(), "detached"),
 		Timeout: 1 * time.Minute,
 	}
