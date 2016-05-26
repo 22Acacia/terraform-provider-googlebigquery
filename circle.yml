@@ -9,5 +9,5 @@ deployment:
       - cd $HOME/$CIRCLE_PROJECT_REPONAME/ && make build
       - cd $HOME/$CIRCLE_PROJECT_REPONAME && echo $GOOGLE_CREDENTIALS > account.json
       - /opt/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file $HOME/$CIRCLE_PROJECT_REPONAME/account.json
-      - gsutil cp $HOME/$CIRCLE_PROJECT_REPONAME/terraform-provider-googleappengine gs://$GSTORAGE_DEST_BUCKET/terraform-provider-googleappengine
-      - gsutil acl ch -u AllUsers:R gs://$GSTORAGE_DEST_BUCKET/terraform-provider-googleappengine
+      - gsutil cp $HOME/$CIRCLE_PROJECT_REPONAME/terraform-provider-googleappengine gs://$GSTORAGE_DEST_BUCKET/terraform-provider-googlebigquery
+      - gsutil acl ch -u AllUsers:R gs://$GSTORAGE_DEST_BUCKET/terraform-provider-googlebigquery
